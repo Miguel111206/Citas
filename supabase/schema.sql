@@ -134,7 +134,7 @@ begin
   update public.invitations
     set status = 'Completed',
         completed_at = saved_response.submitted_at
-    where id = selected_invitation.id;
+    where public.invitations.id = selected_invitation.id;
 
   return query
     select
