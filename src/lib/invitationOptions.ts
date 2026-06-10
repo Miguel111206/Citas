@@ -35,8 +35,8 @@ export const foods: Choice[] = [
   { value: "Sushi", label: "Sushi", emoji: "🍣" },
   { value: "Burgers", label: "Hamburguesas", emoji: "🍔" },
   { value: "Pasta", label: "Pasta", emoji: "🍝" },
-  { value: "Tacos", label: "Tacos", emoji: "🌮" },
-  { value: "Ramen", label: "Ramen", emoji: "🍜" },
+  { value: "Mexican", label: "Mexicano", emoji: "🌮" },
+  { value: "HotDogs", label: "Perros calientes", emoji: "🌭" },
 ];
 
 export const allowedTimes: ReadonlySet<string> = new Set(
