@@ -5,6 +5,7 @@ import {
   type InvitationRow,
   type ResponseRow,
 } from "@/lib/supabaseAdmin";
+import { requireAuthenticatedAdmin } from "@/lib/supabaseAuth";
 
 const codeAlphabet = "abcdefghijkmnopqrstuvwxyz23456789";
 const codeLength = 8;
@@ -15,24 +16,27 @@ type CreateInvitationPayload = {
 };
 
 export async function GET(request: Request) {
-  const authError = getAdminAuthError(request);
+  const authResult = await requireAuthenticatedAdmin(request);
 
-  if (authError) {
-    return authError;
+  if (!authResult.ok) {
+    return authResult.errorResponse;
   }
 
   try {
+    const ownerId = authResult.admin.user.id;
     const supabase = createSupabaseAdminClient();
     const [invitationsResult, responsesResult] = await Promise.all([
       supabase
         .from("invitations")
-        .select("id,code,recipient_name,status,created_at,completed_at")
+        .select("id,code,recipient_name,owner_id,status,created_at,completed_at")
+        .eq("owner_id", ownerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("responses")
         .select(
-          "id,invite_id,invite_code,recipient_name,date,time,activity,food,submitted_at",
+          "id,invite_id,invite_code,recipient_name,owner_id,date,time,activity,food,submitted_at",
         )
+        .eq("owner_id", ownerId)
         .order("submitted_at", { ascending: false }),
     ]);
 
@@ -63,19 +67,20 @@ export async function GET(request: Request) {
         },
       },
     );
-  } catch {
+  } catch (error) {
+    console.error(error);
     return NextResponse.json(
-      { error: "Faltan variables de entorno de Supabase." },
+      { error: "No se pudo conectar con Supabase. Revisa variables y schema." },
       { status: 500 },
     );
   }
 }
 
 export async function POST(request: Request) {
-  const authError = getAdminAuthError(request);
+  const authResult = await requireAuthenticatedAdmin(request);
 
-  if (authError) {
-    return authError;
+  if (!authResult.ok) {
+    return authResult.errorResponse;
   }
 
   let payload: CreateInvitationPayload;
@@ -102,6 +107,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const ownerId = authResult.admin.user.id;
     const supabase = createSupabaseAdminClient();
 
     for (let attempt = 0; attempt < maxCodeAttempts; attempt += 1) {
@@ -110,10 +116,11 @@ export async function POST(request: Request) {
         .from("invitations")
         .insert({
           code,
+          owner_id: ownerId,
           recipient_name: recipientName,
           status: "Pending",
         })
-        .select("id,code,recipient_name,status,created_at,completed_at")
+        .select("id,code,recipient_name,owner_id,status,created_at,completed_at")
         .single();
 
       if (!error && data) {
@@ -140,30 +147,13 @@ export async function POST(request: Request) {
       { error: "No se pudo generar un codigo unico. Intenta otra vez." },
       { status: 500 },
     );
-  } catch {
+  } catch (error) {
+    console.error(error);
     return NextResponse.json(
-      { error: "Faltan variables de entorno de Supabase." },
+      { error: "No se pudo conectar con Supabase. Revisa variables y schema." },
       { status: 500 },
     );
   }
-}
-
-function getAdminAuthError(request: Request) {
-  const configuredPassword = process.env.ADMIN_PASSWORD;
-  const providedPassword = request.headers.get("x-admin-password");
-
-  if (!configuredPassword) {
-    return NextResponse.json(
-      { error: "ADMIN_PASSWORD no esta configurada." },
-      { status: 500 },
-    );
-  }
-
-  if (!providedPassword || providedPassword !== configuredPassword) {
-    return NextResponse.json({ error: "Clave incorrecta." }, { status: 401 });
-  }
-
-  return null;
 }
 
 function serializeInvitation(

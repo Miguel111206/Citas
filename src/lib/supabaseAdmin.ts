@@ -6,6 +6,7 @@ export type InvitationRow = {
   id: number;
   code: string;
   recipient_name: string;
+  owner_id: string | null;
   status: InvitationStatus;
   created_at: string;
   completed_at: string | null;
@@ -16,11 +17,20 @@ export type ResponseRow = {
   invite_id: number | null;
   invite_code: string | null;
   recipient_name: string | null;
+  owner_id: string | null;
   date: string;
   time: string;
   activity: string;
   food: string;
   submitted_at: string;
+};
+
+export type ProfileRow = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type CompleteInvitationResponse = {
@@ -37,6 +47,15 @@ export type CompleteInvitationResponse = {
 type Database = {
   public: {
     Tables: {
+      profiles: {
+        Row: ProfileRow;
+        Insert: Omit<ProfileRow, "created_at" | "updated_at"> & {
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Omit<ProfileRow, "id">>;
+        Relationships: [];
+      };
       invitations: {
         Row: InvitationRow;
         Insert: Omit<InvitationRow, "id" | "created_at" | "completed_at"> & {

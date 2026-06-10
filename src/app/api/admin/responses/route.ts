@@ -1,29 +1,21 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import { requireAuthenticatedAdmin } from "@/lib/supabaseAuth";
 
 export async function GET(request: Request) {
-  const configuredPassword = process.env.ADMIN_PASSWORD;
-  const providedPassword = request.headers.get("x-admin-password");
+  const authResult = await requireAuthenticatedAdmin(request);
 
-  if (!configuredPassword) {
-    return NextResponse.json(
-      { error: "ADMIN_PASSWORD no está configurada." },
-      { status: 500 },
-    );
-  }
-
-  if (!providedPassword || providedPassword !== configuredPassword) {
-    return NextResponse.json(
-      { error: "Clave incorrecta." },
-      { status: 401 },
-    );
+  if (!authResult.ok) {
+    return authResult.errorResponse;
   }
 
   try {
+    const ownerId = authResult.admin.user.id;
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("responses")
       .select("id,date,time,activity,food,submitted_at")
+      .eq("owner_id", ownerId)
       .order("submitted_at", { ascending: false });
 
     if (error) {
@@ -41,9 +33,10 @@ export async function GET(request: Request) {
         },
       },
     );
-  } catch {
+  } catch (error) {
+    console.error(error);
     return NextResponse.json(
-      { error: "Faltan variables de entorno de Supabase." },
+      { error: "No se pudo conectar con Supabase. Revisa variables y schema." },
       { status: 500 },
     );
   }

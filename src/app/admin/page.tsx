@@ -7,14 +7,20 @@ import {
   ExternalLink,
   HeartHandshake,
   LoaderCircle,
+  LogOut,
   LockKeyhole,
+  Mail,
   Plus,
   RefreshCcw,
+  ShieldCheck,
+  UserPlus,
   UserRound,
   X,
 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { activities, foods } from "@/lib/invitationOptions";
+import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 
 type InvitationStatus = "Pending" | "Completed";
 
@@ -51,8 +57,13 @@ const legacyFoodLabels: Record<string, string> = {
   Tacos: "Mexicano",
 };
 
+type AuthMode = "signin" | "signup";
+
 export default function AdminPage() {
+  const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [invitations, setInvitations] = useState<InvitationRow[]>([]);
   const [latestInvitation, setLatestInvitation] =
@@ -60,26 +71,35 @@ export default function AdminPage() {
   const [selectedResponseInvitation, setSelectedResponseInvitation] =
     useState<InvitationRow | null>(null);
   const [copiedCode, setCopiedCode] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
 
   const completedCount = useMemo(
     () => invitations.filter((item) => item.status === "Completed").length,
     [invitations],
   );
 
-  async function loadInvitations(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
+  const adminName =
+    normalizeProfileName(session?.user.user_metadata?.display_name) ||
+    normalizeProfileName(session?.user.user_metadata?.name) ||
+    session?.user.email ||
+    "Admin";
+
+  const loadInvitations = useCallback(async (accessToken?: string) => {
+    if (!accessToken) {
+      setError("Inicia sesion para entrar al panel.");
+      return;
+    }
+
     setIsLoading(true);
     setError("");
 
     try {
       const response = await fetch("/api/admin/invitations", {
-        headers: {
-          "x-admin-password": password,
-        },
+        headers: getAuthHeaders(accessToken),
       });
       const payload = await response.json();
 
@@ -88,7 +108,6 @@ export default function AdminPage() {
       }
 
       setInvitations(payload.invitations ?? []);
-      setIsAuthenticated(true);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -98,20 +117,149 @@ export default function AdminPage() {
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const supabase = getSupabaseBrowserClient();
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setSession(data.session);
+
+      if (data.session) {
+        void loadInvitations(data.session.access_token);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => {
+        setSession(nextSession);
+
+        if (nextSession) {
+          void loadInvitations(nextSession.access_token);
+        } else {
+          setInvitations([]);
+          setLatestInvitation(null);
+          setSelectedResponseInvitation(null);
+        }
+      },
+    );
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [loadInvitations]);
+
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsLoading(true);
+    setError("");
+    setAuthMessage("");
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const trimmedEmail = email.trim();
+
+      if (password.length < 6) {
+        throw new Error("La contrasena debe tener al menos 6 caracteres.");
+      }
+
+      if (authMode === "signup") {
+        const trimmedDisplayName = displayName.trim();
+
+        if (!trimmedDisplayName) {
+          throw new Error("Escribe un nombre para el perfil.");
+        }
+
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: trimmedEmail,
+          options: {
+            data: {
+              display_name: trimmedDisplayName,
+            },
+          },
+          password,
+        });
+
+        if (signUpError) {
+          throw signUpError;
+        }
+
+        if (data.session) {
+          setSession(data.session);
+          setAuthMessage("Perfil creado.");
+          await loadInvitations(data.session.access_token);
+        } else {
+          setAuthMode("signin");
+          setAuthMessage("Revisa tu correo para confirmar la cuenta.");
+        }
+      } else {
+        const { data, error: signInError } =
+          await supabase.auth.signInWithPassword({
+            email: trimmedEmail,
+            password,
+          });
+
+        if (signInError) {
+          throw signInError;
+        }
+
+        setSession(data.session);
+
+        if (data.session) {
+          await loadInvitations(data.session.access_token);
+        }
+      }
+    } catch (authError) {
+      setError(
+        authError instanceof Error
+          ? authError.message
+          : "No se pudo autenticar el perfil.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function signOut() {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      await supabase.auth.signOut();
+      setSession(null);
+      setInvitations([]);
+      setLatestInvitation(null);
+      setSelectedResponseInvitation(null);
+    } catch {
+      setError("No se pudo cerrar la sesion.");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function createInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const accessToken = session?.access_token;
+
+    if (!accessToken) {
+      setError("Inicia sesion para crear invitaciones.");
+      return;
+    }
+
     setIsCreating(true);
     setError("");
 
     try {
       const response = await fetch("/api/admin/invitations", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-password": password,
-        },
+        headers: getAuthHeaders(accessToken, true),
         body: JSON.stringify({ recipientName }),
       });
       const payload = await response.json();
@@ -156,40 +304,127 @@ export default function AdminPage() {
               Invitaciones personalizadas
             </h1>
           </div>
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/80 text-rose-600 shadow-inner">
-            <HeartHandshake className="h-7 w-7" />
-          </div>
+          {session ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/80 text-rose-600 shadow-inner">
+                <ShieldCheck className="h-7 w-7" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-extrabold text-[#512336]">
+                  {adminName}
+                </p>
+                <p className="truncate text-xs font-semibold text-[#8d6571]">
+                  {session.user.email}
+                </p>
+              </div>
+              <button
+                aria-label="Cerrar sesion"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-rose-50 focus:outline-none focus:ring-4 focus:ring-rose-100"
+                disabled={isLoading}
+                onClick={() => void signOut()}
+                title="Cerrar sesion"
+                type="button"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/80 text-rose-600 shadow-inner">
+              <HeartHandshake className="h-7 w-7" />
+            </div>
+          )}
         </header>
 
-        {!isAuthenticated ? (
+        {!session ? (
           <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-[0_28px_80px_rgba(190,24,93,0.18)] backdrop-blur sm:p-8">
-            <form className="grid gap-4" onSubmit={loadInvitations}>
+            <form className="grid gap-4" onSubmit={handleAuthSubmit}>
+              {authMode === "signup" && (
+                <label className="grid gap-2">
+                  <span className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-[0.15em] text-rose-500">
+                    <UserRound className="h-4 w-4" />
+                    Nombre del perfil
+                  </span>
+                  <input
+                    className="h-12 rounded-2xl border border-rose-100 bg-white px-4 text-base font-semibold shadow-sm outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100"
+                    maxLength={80}
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    placeholder="Miguel"
+                    type="text"
+                    value={displayName}
+                  />
+                </label>
+              )}
+
               <label className="grid gap-2">
                 <span className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-[0.15em] text-rose-500">
-                  <LockKeyhole className="h-4 w-4" />
-                  Clave de administrador
+                  <Mail className="h-4 w-4" />
+                  Correo de administrador
                 </span>
                 <input
                   className="h-12 rounded-2xl border border-rose-100 bg-white px-4 text-base font-semibold shadow-sm outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100"
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="admin@email.com"
+                  type="email"
+                  value={email}
+                />
+              </label>
+
+              <label className="grid gap-2">
+                <span className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-[0.15em] text-rose-500">
+                  <LockKeyhole className="h-4 w-4" />
+                  Contrasena
+                </span>
+                <input
+                  className="h-12 rounded-2xl border border-rose-100 bg-white px-4 text-base font-semibold shadow-sm outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100"
+                  minLength={6}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Escribe la clave"
+                  placeholder="Minimo 6 caracteres"
                   type="password"
                   value={password}
                 />
               </label>
 
-              <button
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-black uppercase tracking-[0.14em] text-white shadow-[0_14px_28px_rgba(225,29,72,0.28)] transition hover:-translate-y-0.5 hover:bg-rose-700 focus:outline-none focus:ring-4 focus:ring-rose-200 disabled:cursor-not-allowed disabled:bg-rose-200 disabled:text-rose-500 disabled:shadow-none sm:w-fit"
-                disabled={!password || isLoading}
-                type="submit"
-              >
-                {isLoading ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <LockKeyhole className="h-4 w-4" />
-                )}
-                entrar
-              </button>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-black uppercase tracking-[0.14em] text-white shadow-[0_14px_28px_rgba(225,29,72,0.28)] transition hover:-translate-y-0.5 hover:bg-rose-700 focus:outline-none focus:ring-4 focus:ring-rose-200 disabled:cursor-not-allowed disabled:bg-rose-200 disabled:text-rose-500 disabled:shadow-none sm:w-fit"
+                  disabled={
+                    !email.trim() ||
+                    !password ||
+                    (authMode === "signup" && !displayName.trim()) ||
+                    isLoading
+                  }
+                  type="submit"
+                >
+                  {isLoading ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : authMode === "signup" ? (
+                    <UserPlus className="h-4 w-4" />
+                  ) : (
+                    <LockKeyhole className="h-4 w-4" />
+                  )}
+                  {authMode === "signup" ? "crear perfil" : "entrar"}
+                </button>
+
+                <button
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-rose-200 bg-white px-5 text-xs font-black uppercase tracking-[0.14em] text-rose-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-rose-50 focus:outline-none focus:ring-4 focus:ring-rose-100"
+                  onClick={() => {
+                    setAuthMode((current) =>
+                      current === "signin" ? "signup" : "signin",
+                    );
+                    setAuthMessage("");
+                    setError("");
+                  }}
+                  type="button"
+                >
+                  {authMode === "signin" ? "crear cuenta" : "ya tengo cuenta"}
+                </button>
+              </div>
+
+              {authMessage && (
+                <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm">
+                  {authMessage}
+                </p>
+              )}
             </form>
           </section>
         ) : (
@@ -268,7 +503,9 @@ export default function AdminPage() {
                 <button
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-rose-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-rose-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-rose-50 focus:outline-none focus:ring-4 focus:ring-rose-100"
                   disabled={isLoading}
-                  onClick={() => void loadInvitations()}
+                  onClick={() =>
+                    void loadInvitations(session?.access_token)
+                  }
                   type="button"
                 >
                   {isLoading ? (
@@ -375,6 +612,22 @@ export default function AdminPage() {
       )}
     </main>
   );
+}
+
+function getAuthHeaders(accessToken: string, hasJsonBody = false) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+  };
+
+  if (hasJsonBody) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
+}
+
+function normalizeProfileName(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
 function ResponseDialog({

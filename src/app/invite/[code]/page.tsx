@@ -72,7 +72,7 @@ async function loadInvitation(code: string): Promise<InviteLoadResult> {
     const supabase = createSupabaseAdminClient();
     const { data: invitation, error } = await supabase
       .from("invitations")
-      .select("id,code,recipient_name,status,created_at,completed_at")
+      .select("id,code,recipient_name,owner_id,status,created_at,completed_at")
       .eq("code", code)
       .maybeSingle();
 
