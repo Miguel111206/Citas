@@ -1,26 +1,65 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fff7ed;
+  --foreground: #512336;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-nunito);
+  --font-serif: var(--font-playfair);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
 }
 
 body {
+  min-height: 100%;
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-nunito), Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: #fecdd3;
+  color: #831843;
+}
+
+.floating-heart {
+  animation-name: float-heart;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+  color: #e11d48;
+  text-shadow: 0 10px 24px rgb(225 29 72 / 0.18);
+}
+
+@keyframes float-heart {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(-8deg) scale(0.8);
+  }
+
+  18% {
+    opacity: 0.75;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(22px, -105dvh, 0) rotate(18deg) scale(1.18);
+  }
 }

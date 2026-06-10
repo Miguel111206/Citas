@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Invitación a cita
 
-## Getting Started
+App web interactiva hecha con Next.js, Tailwind CSS, Framer Motion y Supabase.
+Incluye invitaciones personalizadas por enlace unico, flujo romantico por
+pantallas, guardado de respuestas y panel privado en `/admin`.
 
-First, run the development server:
+## Desarrollo local
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Crea `.env.local` usando `.env.example` como guía:
 
-## Learn More
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ADMIN_PASSWORD=choose-a-private-password
+NEXT_PUBLIC_SITE_URL=https://mi-cita.vercel.app
+```
 
-To learn more about Next.js, take a look at the following resources:
+`SUPABASE_SERVICE_ROLE_KEY` y `ADMIN_PASSWORD` solo se usan en rutas server.
+`NEXT_PUBLIC_SITE_URL` es opcional, pero ayuda a generar enlaces finales de
+produccion desde el panel.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Supabase
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Crea un proyecto en Supabase.
+2. Abre SQL Editor.
+3. Ejecuta el contenido de `supabase/schema.sql`.
+4. Copia `Project URL`, `anon key` y `service_role key` a las variables de
+   entorno.
 
-## Deploy on Vercel
+El schema crea:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `public.invitations`: nombre, codigo unico, estado y fecha de completado.
+- `public.responses`: respuesta asociada a una invitacion.
+- `public.complete_invitation`: funcion transaccional que guarda la respuesta y
+  marca la invitacion como `Completed`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Netlify
+
+Conecta el repositorio en Netlify y configura:
+
+- Build command: `npm run build`
+- Publish directory: `.next`
+- Variables de entorno: las mismas de `.env.example`
+
+Netlify soporta Next.js App Router y route handlers con su adapter automático,
+así que no se fija manualmente `@netlify/plugin-nextjs`.
+
+## Rutas
+
+- `/`: entrada neutral hacia el panel y enlaces personalizados.
+- `/invite/[code]`: invitacion personalizada.
+- `/admin`: panel privado con clave simple.
+- `/api/admin/invitations`: crea y lista invitaciones.
+- `/api/invitations/[code]/response`: guarda una respuesta unica.
